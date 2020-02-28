@@ -1,0 +1,140 @@
+---
+title: "EDA_week5excercise1"
+author: "Lucia M Rodriguez Bravo"
+date: "2/27/2020"
+output:
+  html_document:
+    theme: united
+    toc: yes
+  pdf_document:
+    toc: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+# Messy Data Activity
+
+## Data extraction
+First were calling the packages to be used
+
+```{r}
+library(tidyverse)
+library(dbplyr)
+```
+
+Then, we'll call the deliberately broken dataset 
+
+This dataset contains the following variables: 
+
+netID: A unique identifier for the sampling event (more than one can share)
+
+fishID: A unique identifier for the individual fish (can't be duplicated)
+
+species: Species name
+
+length: Total length (inches to nearest 0.1)
+
+weight: Wet weight (grams to nearest 0.1)
+
+year: Year of capture
+
+# STEP 1: Did it load correctly?
+```{r}
+InchLake2_Broken<-read.csv("data/InchLake2-Broken.csv")
+head(InchLake2_Broken)
+#Extra columns? Yes. Column X. We get rid of it.
+InchLake2_Broken <- InchLake2_Broken %>% select(-X)
+head(InchLake2_Broken)
+#It worked! Now, is there any extra rows? Also yes. The last row has a weight registered but nothing else. 
+#To remove it:
+InchLake2_Broken <- InchLake2_Broken %>%filter(!is.na(fishID)) #any variable besides weight should work
+
+```
+
+# STEP 2: Check data types
+```{r}
+# First Question: What are the data types in this data set?
+sapply(InchLake2_Broken, class)
+# Does this look right? No. weight and year should not be a "factor"
+```
+### Weight first
+```{r}
+levels(InchLake2_Broken$weight)
+#looks like the value "1,070" has a comma where it shouldn't. We create a new dataframe
+InchLake_fix<-InchLake2_Broken
+InchLake_fix$weight<-as.character(InchLake_fix$weight) #make factors into characters
+InchLake_fix %>%filter(is.na(as.numeric(weight))==TRUE) #filter out non-numeric characters
+#the mistake, as expected, is "1,070" We could fix it as follows:
+InchLake_fix <- InchLake_fix %>%mutate(weight = ifelse(weight=="1,070", 1070, weight))
+InchLake_fix$weight<-as.numeric(InchLake_fix$weight)
+#alternatively: InchLake_fix$weight<-gsub(",","",InchLake_fix$weight)  
+#(Still, a 17 inch bass weighing over 1kg seems suspicious, no?)
+range(InchLake_fix$weight)
+plot(InchLake_fix$weight)
+#did it work?
+sapply(InchLake_fix, class)
+#it is our highest value, but it's not obviously an outlier
+```
+### Now year
+```{r}
+levels(InchLake_fix$year) #there's a 2048, a 2o07 and a 2 008. Must fix each
+InchLake_fix$year<-as.character(InchLake_fix$year)
+InchLake_fix %>%filter(is.na(as.numeric(year))==TRUE) #note: 2048 doesn't appear because it is a number
+InchLake_fix <- InchLake_fix %>%mutate(year = ifelse(year=="2 008", 2008, year))%>%mutate(year = ifelse(year==2048, 2008, year))%>%mutate(year = ifelse(year=="2O07", 2007, year))
+InchLake_fix$year<-as.numeric(InchLake_fix$year)
+#checking
+range(InchLake_fix$year)
+plot(InchLake_fix$year)
+
+sapply(InchLake_fix, class)
+```
+
+
+# STEP 3: Check for missing or impossible values
+```{r}
+#checking the ranges of everything except species
+range(InchLake_fix$netID) #looks ok
+plot(InchLake_fix$netID) #looks ok
+
+range(InchLake_fix$fishID) #not super useful 
+plot(InchLake_fix$fishID)
+
+range(InchLake_fix$length) #there's a minus value, that makes no sense
+plot(InchLake_fix$length) #there's also one lone very high value (800)
+InchLake_fix <- InchLake_fix %>%mutate(length = ifelse(length=="-8.7", 8.7, length))%>%mutate(length = ifelse(length==800, 8.0, length)) #chose to make our 800 inch fish a 8 inch fish to match best other bluegills
+#check it worked
+range(InchLake_fix$length)
+plot(InchLake_fix$length) 
+
+#Still need to check fishID and species
+#Fish ID should be unique per fish so
+InchLake_fix %>%count(n_distinct(fishID)) #there's 2 less unique values than there should
+InchLake_fix %>% group_by(fishID) %>% filter(n()>1) # fish ID 517 is repeated 3 times. I would have to look at the original data to figure out which is which. We corect accordingly:
+InchLake_fix <- InchLake_fix%>%
+  mutate(fishID = ifelse(fishID==517 & length==2.2, 516, fishID)) %>% mutate(fishID = ifelse(fishID==517 & length==9.0, 222, fishID))
+#Did it work?
+InchLake_fix %>%count(n_distinct(fishID)) #Yes
+
+```
+
+
+# STEP 4: Check for typos and broken factors
+```{r}
+#The last check that needs to happen: species
+
+levels(InchLake_fix$species) #mistakes on several
+InchLake_fix$species<-as.character(InchLake_fix$species)
+InchLake_fix <- InchLake_fix%>%
+  mutate(species = ifelse(species=="Black Crapie", "Black Crappie", species)) %>% mutate(species = ifelse(species=="bluegill", "Bluegill", species))%>% mutate(species = ifelse(species=="Bluegill ", "Bluegill", species))%>% mutate(species = ifelse(species=="Iowa_Darter ", "Iowa Darter", species))%>% mutate(species = ifelse(species=="Largemout Bass", "Largemouth Bass", species))
+InchLake_fix$species<-as.factor(InchLake_fix$species)
+#Did it work?
+levels(InchLake_fix$species) 
+```
+##Final check
+```{r}
+InchLake2_Clean<- read.csv("data/InchLake2-Clean.csv")
+
+all.equal(InchLake2_Clean, InchLake_fix)
+```
+# B)
+
